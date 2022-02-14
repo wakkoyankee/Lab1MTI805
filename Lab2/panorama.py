@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+import imutils
 
 root = "Images/"
 image1 = cv2.imread(root + "foto1A.jpg")
@@ -14,9 +15,9 @@ cv2.destroyAllWindows()
 image1_gray = cv2.cvtColor(image1, cv2.COLOR_RGB2GRAY)
 image2_gray = cv2.cvtColor(image2, cv2.COLOR_RGB2GRAY)
 
-#method = cv2.xfeatures2d.SIFT_create()
+method = cv2.xfeatures2d.SIFT_create()
 #method = cv2.BRISK_create()
-method = cv2.ORB_create()
+#method = cv2.ORB_create()
 
 ################  SIFT, SURF, BRISK, ORB  #################
 
@@ -33,14 +34,15 @@ plt.show()
 
 ########## KEY POINTS MATCH, BFMATCHER, KNN #################
 
-bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True) # BRISK & ORB
-#bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True) # SIFT
+#bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True) # BRISK & ORB
+bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True) # SIFT
 
 best_matches = bf.match(features1,features2)
 rawMatches = sorted(best_matches, key = lambda x:x.distance)
 
 fig = plt.figure(figsize=(20,8))
 img3 = cv2.drawMatches(image1,keypoints1,image2,keypoints2,rawMatches[:100],None,flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+img3 = cv2.cvtColor(img3, cv2.COLOR_BGR2RGB)
 plt.imshow(img3)
 plt.show()
 
@@ -69,6 +71,7 @@ result = cv2.warpPerspective(image1, H, (width, height))
 result[0:image2.shape[0], 0:image2.shape[1]] = image2
 
 plt.figure(figsize=(20,10))
+result = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
 plt.imshow(result)
 
 plt.axis('off')

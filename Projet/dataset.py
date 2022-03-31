@@ -3,34 +3,34 @@ import os
 from torch.utils.data import Dataset
 import numpy as np
 
-class HorseZebraDataset(Dataset):
-    def __init__(self, root_zebra, root_horse, transform=None):
-        self.root_zebra = root_zebra
-        self.root_horse = root_horse
+class CastleEldenDataset(Dataset):
+    def __init__(self, root_elden, root_castle, transform=None):
+        self.root_elden = root_elden
+        self.root_castle = root_castle
         self.transform = transform
 
-        self.zebra_images = os.listdir(root_zebra)
-        self.horse_images = os.listdir(root_horse)
-        self.length_dataset = max(len(self.zebra_images), len(self.horse_images)) # 1000, 1500
-        self.zebra_len = len(self.zebra_images)
-        self.horse_len = len(self.horse_images)
+        self.elden_images = os.listdir(root_elden)
+        self.castle_images = os.listdir(root_castle)
+        self.length_dataset = max(len(self.elden_images), len(self.castle_images)) # 1000, 1500
+        self.elden_len = len(self.elden_images)
+        self.castle_len = len(self.castle_images)
 
     def __len__(self):
         return self.length_dataset
 
     def __getitem__(self, index):
-        zebra_img = self.zebra_images[index % self.zebra_len]
-        horse_img = self.horse_images[index % self.horse_len]
+        elden_img = self.elden_images[index % self.elden_len]
+        castle_img = self.castle_images[index % self.castle_len]
 
-        zebra_path = os.path.join(self.root_zebra, zebra_img)
-        horse_path = os.path.join(self.root_horse, horse_img)
+        elden_path = os.path.join(self.root_elden, elden_img)
+        castle_path = os.path.join(self.root_castle, castle_img)
 
-        zebra_img = np.array(Image.open(zebra_path).convert("RGB"))
-        horse_img = np.array(Image.open(horse_path).convert("RGB"))
+        elden_img = np.array(Image.open(elden_path).convert("RGB"))
+        castle_img = np.array(Image.open(castle_path).convert("RGB"))
 
         if self.transform:
-            augmentations = self.transform(image=zebra_img, image0=horse_img)
-            zebra_img = augmentations["image"]
-            horse_img = augmentations["image0"]
+            augmentations = self.transform(image=elden_img, image0=castle_img)
+            elden_img = augmentations["image"]
+            castle_img = augmentations["image0"]
 
-        return zebra_img, horse_img
+        return elden_img, castle_img

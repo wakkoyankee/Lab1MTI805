@@ -1,5 +1,5 @@
 import torch
-from dataset import HorseZebraDataset
+from dataset import CastleEldenDataset
 import sys
 from utils import save_checkpoint, load_checkpoint
 from torch.utils.data import DataLoader
@@ -10,36 +10,39 @@ from tqdm import tqdm
 from torchvision.utils import save_image
 from discriminator_model import Discriminator
 from generator_model import Generator
+from torch.utils.tensorboard import SummaryWriter
 
-def train_fn(disc_H, disc_Z, gen_Z, gen_H, loader, opt_disc, opt_gen, l1, mse, d_scaler, g_scaler):
+def train_fn(disc_C, disc_E, gen_E, gen_C, loader, opt_disc, opt_gen, l1, mse, d_scaler, g_scaler):
     H_reals = 0
     H_fakes = 0
     loop = tqdm(loader, leave=True)
+    global writer
+    loss = []
 
-    for idx, (zebra, horse) in enumerate(loop):
-        zebra = zebra.to(config.DEVICE)
-        horse = horse.to(config.DEVICE)
+    for idx, (elden, castle) in enumerate(loop):
+        elden = elden.to(config.DEVICE)
+        castle = castle.to(config.DEVICE)
 
         # Train Discriminators H and Z
         with torch.cuda.amp.autocast():
-            fake_horse = gen_H(zebra)
-            D_H_real = disc_H(horse)
-            D_H_fake = disc_H(fake_horse.detach())
-            H_reals += D_H_real.mean().item()
-            H_fakes += D_H_fake.mean().item()
-            D_H_real_loss = mse(D_H_real, torch.ones_like(D_H_real))
-            D_H_fake_loss = mse(D_H_fake, torch.zeros_like(D_H_fake))
-            D_H_loss = D_H_real_loss + D_H_fake_loss
+            fake_castle = gen_C(elden)
+            D_C_real = disc_C(castle)
+            D_C_fake = disc_C(fake_castle.detach())
+            C_reals += D_C_real.mean().item()
+            C_fakes += D_C_fake.mean().item()
+            D_C_real_loss = mse(D_C_real, torch.ones_like(D_C_real))
+            D_C_fake_loss = mse(D_C_fake, torch.zeros_like(D_C_fake))
+            D_C_loss = D_C_real_loss + D_C_fake_loss
 
-            fake_zebra = gen_Z(horse)
-            D_Z_real = disc_Z(zebra)
-            D_Z_fake = disc_Z(fake_zebra.detach())
-            D_Z_real_loss = mse(D_Z_real, torch.ones_like(D_Z_real))
-            D_Z_fake_loss = mse(D_Z_fake, torch.zeros_like(D_Z_fake))
-            D_Z_loss = D_Z_real_loss + D_Z_fake_loss
+            fake_elden = gen_E(castle)
+            D_E_real = disc_E(elden)
+            D_E_fake = disc_E(fake_elden.detach())
+            D_E_real_loss = mse(D_E_real, torch.ones_like(D_E_real))
+            D_E_fake_loss = mse(D_E_fake, torch.zeros_like(D_E_fake))
+            D_E_loss = D_E_real_loss + D_E_fake_loss
 
             # put it togethor
-            D_loss = (D_H_loss + D_Z_loss)/2
+            D_loss = (D_C_loss + D_E_loss)/2
 
         opt_disc.zero_grad()
         d_scaler.scale(D_loss).backward()
@@ -49,32 +52,34 @@ def train_fn(disc_H, disc_Z, gen_Z, gen_H, loader, opt_disc, opt_gen, l1, mse, d
         # Train Generators H and Z
         with torch.cuda.amp.autocast():
             # adversarial loss for both generators
-            D_H_fake = disc_H(fake_horse)
-            D_Z_fake = disc_Z(fake_zebra)
-            loss_G_H = mse(D_H_fake, torch.ones_like(D_H_fake))
-            loss_G_Z = mse(D_Z_fake, torch.ones_like(D_Z_fake))
+            D_C_fake = disc_C(fake_castle)
+            D_E_fake = disc_E(fake_elden)
+            loss_G_C = mse(D_C_fake, torch.ones_like(D_C_fake))
+            loss_G_E = mse(D_E_fake, torch.ones_like(D_E_fake))
 
             # cycle loss
-            cycle_zebra = gen_Z(fake_horse)
-            cycle_horse = gen_H(fake_zebra)
-            cycle_zebra_loss = l1(zebra, cycle_zebra)
-            cycle_horse_loss = l1(horse, cycle_horse)
+            cycle_elden = gen_E(fake_castle)
+            cycle_castle = gen_C(fake_elden)
+            cycle_elden_loss = l1(elden, cycle_elden)
+            cycle_castle_loss = l1(castle, cycle_castle)
 
             # identity loss (remove these for efficiency if you set lambda_identity=0)
-            identity_zebra = gen_Z(zebra)
-            identity_horse = gen_H(horse)
-            identity_zebra_loss = l1(zebra, identity_zebra)
-            identity_horse_loss = l1(horse, identity_horse)
+            identity_elden = gen_E(elden)
+            identity_castle = gen_C(castle)
+            identity_elden_loss = l1(elden, identity_elden)
+            identity_castle_loss = l1(castle, identity_castle)
 
-            # add all togethor
+            # add all together
             G_loss = (
-                loss_G_Z
-                + loss_G_H
-                + cycle_zebra_loss * config.LAMBDA_CYCLE
-                + cycle_horse_loss * config.LAMBDA_CYCLE
-                + identity_horse_loss * config.LAMBDA_IDENTITY
-                + identity_zebra_loss * config.LAMBDA_IDENTITY
+                loss_G_E
+                + loss_G_C
+                + cycle_elden_loss * config.LAMBDA_CYCLE
+                + cycle_castle_loss * config.LAMBDA_CYCLE
+                + identity_castle_loss * config.LAMBDA_IDENTITY
+                + identity_elden_loss * config.LAMBDA_IDENTITY
             )
+
+            loss.append(G_loss)
 
         opt_gen.zero_grad()
         g_scaler.scale(G_loss).backward()
@@ -82,26 +87,28 @@ def train_fn(disc_H, disc_Z, gen_Z, gen_H, loader, opt_disc, opt_gen, l1, mse, d
         g_scaler.update()
 
         if idx % 200 == 0:
-            save_image(fake_horse*0.5+0.5, f"saved_images/horse_{idx}.png")
-            save_image(fake_zebra*0.5+0.5, f"saved_images/zebra_{idx}.png")
+            save_image(fake_castle*0.5+0.5, f"saved_images/castle_{idx}.png")
+            save_image(fake_elden*0.5+0.5, f"saved_images/elden_{idx}.png")
 
-        loop.set_postfix(H_real=H_reals/(idx+1), H_fake=H_fakes/(idx+1))
+        loop.set_postfix(C_real=C_reals/(idx+1), C_fake=C_fakes/(idx+1))
+    
+    writer.add_scalar("Loss/train", np.array(loss).mean(), epoch)
 
 
 
 def main():
-    disc_H = Discriminator(in_channels=3).to(config.DEVICE)
-    disc_Z = Discriminator(in_channels=3).to(config.DEVICE)
-    gen_Z = Generator(img_channels=3, num_residuals=9).to(config.DEVICE)
-    gen_H = Generator(img_channels=3, num_residuals=9).to(config.DEVICE)
+    disc_C = Discriminator(in_channels=3).to(config.DEVICE)
+    disc_E = Discriminator(in_channels=3).to(config.DEVICE)
+    gen_E = Generator(img_channels=3, num_residuals=9).to(config.DEVICE)
+    gen_C = Generator(img_channels=3, num_residuals=9).to(config.DEVICE)
     opt_disc = optim.Adam(
-        list(disc_H.parameters()) + list(disc_Z.parameters()),
+        list(disc_C.parameters()) + list(disc_E.parameters()),
         lr=config.LEARNING_RATE,
         betas=(0.5, 0.999),
     )
 
     opt_gen = optim.Adam(
-        list(gen_Z.parameters()) + list(gen_H.parameters()),
+        list(gen_E.parameters()) + list(gen_C.parameters()),
         lr=config.LEARNING_RATE,
         betas=(0.5, 0.999),
     )
@@ -111,23 +118,23 @@ def main():
 
     if config.LOAD_MODEL:
         load_checkpoint(
-            config.CHECKPOINT_GEN_H, gen_H, opt_gen, config.LEARNING_RATE,
+            config.CHECKPOINT_GEN_C, gen_C, opt_gen, config.LEARNING_RATE,
         )
         load_checkpoint(
-            config.CHECKPOINT_GEN_Z, gen_Z, opt_gen, config.LEARNING_RATE,
+            config.CHECKPOINT_GEN_E, gen_E, opt_gen, config.LEARNING_RATE,
         )
         load_checkpoint(
-            config.CHECKPOINT_CRITIC_H, disc_H, opt_disc, config.LEARNING_RATE,
+            config.CHECKPOINT_CRITIC_C, disc_C, opt_disc, config.LEARNING_RATE,
         )
         load_checkpoint(
-            config.CHECKPOINT_CRITIC_Z, disc_Z, opt_disc, config.LEARNING_RATE,
+            config.CHECKPOINT_CRITIC_E, disc_E, opt_disc, config.LEARNING_RATE,
         )
 
-    dataset = HorseZebraDataset(
-        root_horse=config.TRAIN_DIR+"/horses", root_zebra=config.TRAIN_DIR+"/zebras", transform=config.transforms
+    dataset = CastleEldenDataset(
+        root_castle=config.TRAIN_DIR+"/castle", root_elden=config.TRAIN_DIR+"/elden", transform=config.transforms
     )
-    val_dataset = HorseZebraDataset(
-       root_horse=config.VAL_DIR + "/horses", root_zebra=config.VAL_DIR +"/zebras", transform=config.transforms
+    val_dataset = CastleEldenDataset(
+       root_castle=config.VAL_DIR + "/castle", root_elden=config.VAL_DIR +"/elden", transform=config.transforms
     )
     val_loader = DataLoader(
         val_dataset,
@@ -146,13 +153,17 @@ def main():
     d_scaler = torch.cuda.amp.GradScaler()
 
     for epoch in range(config.NUM_EPOCHS):
-        train_fn(disc_H, disc_Z, gen_Z, gen_H, loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler)
+        train_fn(disc_C, disc_E, gen_E, gen_C, loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler)
 
         if config.SAVE_MODEL:
-            save_checkpoint(gen_H, opt_gen, filename=config.CHECKPOINT_GEN_H)
-            save_checkpoint(gen_Z, opt_gen, filename=config.CHECKPOINT_GEN_Z)
-            save_checkpoint(disc_H, opt_disc, filename=config.CHECKPOINT_CRITIC_H)
-            save_checkpoint(disc_Z, opt_disc, filename=config.CHECKPOINT_CRITIC_Z)
-
+            save_checkpoint(gen_C, opt_gen, filename=config.CHECKPOINT_C)
+            save_checkpoint(gen_E, opt_gen, filename=config.CHECKPOINT_GEN_E)
+            save_checkpoint(disc_C, opt_disc, filename=config.CHECKPOINT_CRITIC_C)
+            save_checkpoint(disc_E, opt_disc, filename=config.CHECKPOINT_CRITIC_E)
+    
 if __name__ == "__main__":
+    global writer
+    writer = SummaryWriter()
     main()
+    writer.flush()
+    

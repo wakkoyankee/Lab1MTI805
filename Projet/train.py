@@ -13,8 +13,8 @@ from generator_model import Generator
 from torch.utils.tensorboard import SummaryWriter
 
 def train_fn(disc_C, disc_E, gen_E, gen_C, loader, opt_disc, opt_gen, l1, mse, d_scaler, g_scaler):
-    H_reals = 0
-    H_fakes = 0
+    C_reals = 0
+    C_fakes = 0
     loop = tqdm(loader, leave=True)
     global writer
     loss = []
